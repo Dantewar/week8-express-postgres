@@ -121,7 +121,7 @@ app.post("/books", async (req, res) => {
   }
 });
 
-// Update a book
+// Update a complete book
 app.put("/books/:id", async (req, res) => {
   const id = Number(req.params.id);
   const { title, genre, published_year } = req.body;
@@ -158,6 +158,87 @@ app.put("/books/:id", async (req, res) => {
     console.error(error);
     res.status(500).json({
       message: "Failed to update book",
+    });
+  }
+});
+
+// Partially update a book
+app.patch("/books/:id", async (req, res) => {
+  const id = Number(req.params.id);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({
+      message: "Invalid book ID",
+    });
+  }
+
+  const body = req.body;
+
+  if (
+    !body ||
+    typeof body !== "object" ||
+    Array.isArray(body) ||
+    Object.keys(body).length === 0
+  ) {
+    return res.status(400).json({
+      message: "Request body cannot be empty",
+    });
+  }
+
+  const allowedFields = ["title", "genre", "published_year"];
+  const fields = Object.keys(body);
+
+  if (fields.some((field) => !allowedFields.includes(field))) {
+    return res.status(400).json({
+      message: "Invalid book field",
+    });
+  }
+
+  const { title, genre, published_year } = body;
+
+  if (
+    (title !== undefined &&
+      (typeof title !== "string" || !title.trim())) ||
+    (genre !== undefined &&
+      genre !== null &&
+      typeof genre !== "string") ||
+    (published_year !== undefined &&
+      published_year !== null &&
+      (!Number.isInteger(published_year)))
+  ) {
+    return res.status(400).json({
+      message: "Invalid book data",
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE books
+       SET
+         title = COALESCE($1, title),
+         genre = COALESCE($2, genre),
+         published_year = COALESCE($3, published_year)
+       WHERE id = $4
+       RETURNING *`,
+      [
+        title === undefined ? null : title.trim(),
+        genre ?? null,
+        published_year ?? null,
+        id,
+      ]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        message: "Book not found",
+      });
+    }
+
+    res.status(200).json(result.rows[0]);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: "Failed to partially update book",
     });
   }
 });
