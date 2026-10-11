@@ -10,6 +10,10 @@ const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
+const isValidId = (id) => {
+  return /^\d+$/.test(String(id)) && Number.isSafeInteger(Number(id)) && Number(id) > 0;
+};
+
 // Welcome route
 app.get("/", (req, res) => {
   res.status(200).json({
@@ -65,9 +69,7 @@ app.get("/books", async (req, res) => {
 
 // Get one book by ID
 app.get("/books/:id", async (req, res) => {
-  const id = Number(req.params.id);
-
-  if (!Number.isInteger(id) || id <= 0) {
+  if (!isValidId(req.params.id)) {
     return res.status(400).json({
       message: "Invalid book ID",
     });
@@ -76,7 +78,7 @@ app.get("/books/:id", async (req, res) => {
   try {
     const result = await pool.query(
       "SELECT * FROM books WHERE id = $1",
-      [id]
+      [Number(req.params.id)]
     );
 
     if (result.rows.length === 0) {
@@ -96,7 +98,7 @@ app.get("/books/:id", async (req, res) => {
 
 // Create a book
 app.post("/books", async (req, res) => {
-  const { title, genre, published_year } = req.body;
+  const { title, genre, published_year, author_id } = req.body ?? {};
 
   if (typeof title !== "string" || !title.trim()) {
     return res.status(400).json({
@@ -104,16 +106,57 @@ app.post("/books", async (req, res) => {
     });
   }
 
+  if (
+    genre !== undefined &&
+    genre !== null &&
+    typeof genre !== "string"
+  ) {
+    return res.status(400).json({
+      message: "Invalid genre",
+    });
+  }
+
+  if (
+    published_year !== undefined &&
+    published_year !== null &&
+    !Number.isInteger(published_year)
+  ) {
+    return res.status(400).json({
+      message: "Invalid published year",
+    });
+  }
+
+  if (
+    author_id !== undefined &&
+    author_id !== null &&
+    (!Number.isSafeInteger(author_id) || author_id <= 0)
+  ) {
+    return res.status(400).json({
+      message: "Invalid author ID",
+    });
+  }
+
   try {
     const result = await pool.query(
-      `INSERT INTO books (title, genre, published_year)
-       VALUES ($1, $2, $3)
+      `INSERT INTO books (title, genre, published_year, author_id)
+       VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [title.trim(), genre ?? null, published_year ?? null]
+      [
+        title.trim(),
+        genre ?? null,
+        published_year ?? null,
+        author_id ?? null,
+      ]
     );
 
     res.status(201).json(result.rows[0]);
   } catch (error) {
+    if (error.code === "23503") {
+      return res.status(400).json({
+        message: "Author does not exist",
+      });
+    }
+
     console.error(error);
     res.status(500).json({
       message: "Failed to create book",
@@ -123,14 +166,13 @@ app.post("/books", async (req, res) => {
 
 // Update a complete book
 app.put("/books/:id", async (req, res) => {
-  const id = Number(req.params.id);
-  const { title, genre, published_year } = req.body;
-
-  if (!Number.isInteger(id) || id <= 0) {
+  if (!isValidId(req.params.id)) {
     return res.status(400).json({
       message: "Invalid book ID",
     });
   }
+
+  const { title, genre, published_year } = req.body ?? {};
 
   if (typeof title !== "string" || !title.trim()) {
     return res.status(400).json({
@@ -144,7 +186,12 @@ app.put("/books/:id", async (req, res) => {
        SET title = $1, genre = $2, published_year = $3
        WHERE id = $4
        RETURNING *`,
-      [title.trim(), genre ?? null, published_year ?? null, id]
+      [
+        title.trim(),
+        genre ?? null,
+        published_year ?? null,
+        Number(req.params.id),
+      ]
     );
 
     if (result.rows.length === 0) {
@@ -164,9 +211,7 @@ app.put("/books/:id", async (req, res) => {
 
 // Partially update a book
 app.patch("/books/:id", async (req, res) => {
-  const id = Number(req.params.id);
-
-  if (!Number.isInteger(id) || id <= 0) {
+  if (!isValidId(req.params.id)) {
     return res.status(400).json({
       message: "Invalid book ID",
     });
@@ -204,7 +249,7 @@ app.patch("/books/:id", async (req, res) => {
       typeof genre !== "string") ||
     (published_year !== undefined &&
       published_year !== null &&
-      (!Number.isInteger(published_year)))
+      !Number.isInteger(published_year))
   ) {
     return res.status(400).json({
       message: "Invalid book data",
@@ -224,7 +269,7 @@ app.patch("/books/:id", async (req, res) => {
         title === undefined ? null : title.trim(),
         genre ?? null,
         published_year ?? null,
-        id,
+        Number(req.params.id),
       ]
     );
 
@@ -245,9 +290,7 @@ app.patch("/books/:id", async (req, res) => {
 
 // Delete a book
 app.delete("/books/:id", async (req, res) => {
-  const id = Number(req.params.id);
-
-  if (!Number.isInteger(id) || id <= 0) {
+  if (!isValidId(req.params.id)) {
     return res.status(400).json({
       message: "Invalid book ID",
     });
@@ -256,7 +299,7 @@ app.delete("/books/:id", async (req, res) => {
   try {
     const result = await pool.query(
       "DELETE FROM books WHERE id = $1 RETURNING *",
-      [id]
+      [Number(req.params.id)]
     );
 
     if (result.rows.length === 0) {
@@ -273,6 +316,93 @@ app.delete("/books/:id", async (req, res) => {
     console.error(error);
     res.status(500).json({
       message: "Failed to delete book",
+    });
+  }
+});
+
+// Get all authors
+app.get("/authors", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM authors ORDER BY id"
+    );
+
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: "Failed to fetch authors",
+    });
+  }
+});
+
+// Create an author
+app.post("/authors", async (req, res) => {
+  const { name } = req.body ?? {};
+
+  if (typeof name !== "string" || !name.trim()) {
+    return res.status(400).json({
+      message: "Author name is required",
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      "INSERT INTO authors (name) VALUES ($1) RETURNING *",
+      [name.trim()]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: "Failed to create author",
+    });
+  }
+});
+
+// Get all books written by one author
+app.get("/authors/:id/books", async (req, res) => {
+  if (!isValidId(req.params.id)) {
+    return res.status(400).json({
+      message: "Invalid author ID",
+    });
+  }
+
+  const id = Number(req.params.id);
+
+  try {
+    const authorResult = await pool.query(
+      "SELECT * FROM authors WHERE id = $1",
+      [id]
+    );
+
+    if (authorResult.rows.length === 0) {
+      return res.status(404).json({
+        message: "Author not found",
+      });
+    }
+
+    const result = await pool.query(
+      `SELECT
+         books.id,
+         books.title,
+         books.genre,
+         books.published_year,
+         books.author_id,
+         authors.name AS author_name
+       FROM books
+       JOIN authors ON books.author_id = authors.id
+       WHERE authors.id = $1
+       ORDER BY books.id`,
+      [id]
+    );
+
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: "Failed to fetch author's books",
     });
   }
 });
