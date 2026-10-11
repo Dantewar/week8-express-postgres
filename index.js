@@ -33,6 +33,37 @@ app.get("/books", async (req, res) => {
   }
 });
 
+// Get one book by ID
+app.get("/books/:id", async (req, res) => {
+  const id = Number(req.params.id);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({
+      message: "Invalid book ID",
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      "SELECT * FROM books WHERE id = $1",
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        message: "Book not found",
+      });
+    }
+
+    res.status(200).json(result.rows[0]);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: "Failed to fetch book",
+    });
+  }
+});
+
 // Create a book
 app.post("/books", async (req, res) => {
   const { title, genre, published_year } = req.body;
