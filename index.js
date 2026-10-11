@@ -10,11 +10,12 @@ const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
-const isValidId = (id) => {
-  return /^\d+$/.test(String(id)) && Number.isSafeInteger(Number(id)) && Number(id) > 0;
-};
+const isValidId = (id) =>
+  /^\d+$/.test(String(id)) &&
+  Number.isSafeInteger(Number(id)) &&
+  Number(id) > 0;
 
-// Welcome route
+// Welcome
 app.get("/", (req, res) => {
   res.status(200).json({
     message: "Welcome to the Library API",
@@ -50,14 +51,9 @@ app.get("/books", async (req, res) => {
       values.push(genre);
     }
 
-    if (sort) {
-      query += ` ORDER BY ${sort}`;
-    } else {
-      query += " ORDER BY id";
-    }
+    query += sort ? ` ORDER BY ${sort}` : " ORDER BY id";
 
     const result = await pool.query(query, values);
-
     res.status(200).json(result.rows);
   } catch (error) {
     console.error(error);
@@ -67,7 +63,7 @@ app.get("/books", async (req, res) => {
   }
 });
 
-// Get one book by ID
+// Get one book
 app.get("/books/:id", async (req, res) => {
   if (!isValidId(req.params.id)) {
     return res.status(400).json({
@@ -231,9 +227,12 @@ app.patch("/books/:id", async (req, res) => {
   }
 
   const allowedFields = ["title", "genre", "published_year"];
-  const fields = Object.keys(body);
 
-  if (fields.some((field) => !allowedFields.includes(field))) {
+  if (
+    Object.keys(body).some(
+      (field) => !allowedFields.includes(field)
+    )
+  ) {
     return res.status(400).json({
       message: "Invalid book field",
     });
@@ -313,6 +312,12 @@ app.delete("/books/:id", async (req, res) => {
       book: result.rows[0],
     });
   } catch (error) {
+    if (error.code === "23503") {
+      return res.status(409).json({
+        message: "Cannot delete a book with loan records",
+      });
+    }
+
     console.error(error);
     res.status(500).json({
       message: "Failed to delete book",
@@ -361,7 +366,7 @@ app.post("/authors", async (req, res) => {
   }
 });
 
-// Get all books written by one author
+// Get books by author
 app.get("/authors/:id/books", async (req, res) => {
   if (!isValidId(req.params.id)) {
     return res.status(400).json({
@@ -372,12 +377,12 @@ app.get("/authors/:id/books", async (req, res) => {
   const id = Number(req.params.id);
 
   try {
-    const authorResult = await pool.query(
-      "SELECT * FROM authors WHERE id = $1",
+    const author = await pool.query(
+      "SELECT id FROM authors WHERE id = $1",
       [id]
     );
 
-    if (authorResult.rows.length === 0) {
+    if (author.rows.length === 0) {
       return res.status(404).json({
         message: "Author not found",
       });
@@ -403,6 +408,198 @@ app.get("/authors/:id/books", async (req, res) => {
     console.error(error);
     res.status(500).json({
       message: "Failed to fetch author's books",
+    });
+  }
+});
+
+// Create a library member
+app.post("/members", async (req, res) => {
+  const { name, email } = req.body ?? {};
+
+  if (typeof name !== "string" || !name.trim()) {
+    return res.status(400).json({
+      message: "Member name is required",
+    });
+  }
+
+  if (
+    typeof email !== "string" ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+  ) {
+    return res.status(400).json({
+      message: "Valid email is required",
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO members (name, email)
+       VALUES ($1, $2)
+       RETURNING *`,
+      [name.trim(), email.trim()]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    if (error.code === "23505") {
+      return res.status(409).json({
+        message: "Email already exists",
+      });
+    }
+
+    console.error(error);
+    res.status(500).json({
+      message: "Failed to create member",
+    });
+  }
+});
+
+// Borrow a book
+app.post("/loans", async (req, res) => {
+  const { book_id, member_id } = req.body ?? {};
+
+  if (
+    !Number.isSafeInteger(book_id) ||
+    book_id <= 0 ||
+    !Number.isSafeInteger(member_id) ||
+    member_id <= 0
+  ) {
+    return res.status(400).json({
+      message: "Valid book_id and member_id are required",
+    });
+  }
+
+  try {
+    const activeLoan = await pool.query(
+      `SELECT id FROM loans
+       WHERE book_id = $1 AND returned_at IS NULL`,
+      [book_id]
+    );
+
+    if (activeLoan.rows.length > 0) {
+      return res.status(409).json({
+        message: "Book is already borrowed",
+      });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO loans (book_id, member_id)
+       VALUES ($1, $2)
+       RETURNING *`,
+      [book_id, member_id]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    if (error.code === "23505") {
+      return res.status(409).json({
+        message: "Book is already borrowed",
+      });
+    }
+
+    if (error.code === "23503") {
+      return res.status(400).json({
+        message: "Book or member does not exist",
+      });
+    }
+
+    console.error(error);
+    res.status(500).json({
+      message: "Failed to create loan",
+    });
+  }
+});
+
+// Return a borrowed book
+app.patch("/loans/:id/return", async (req, res) => {
+  if (!isValidId(req.params.id)) {
+    return res.status(400).json({
+      message: "Invalid loan ID",
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE loans
+       SET returned_at = NOW()
+       WHERE id = $1 AND returned_at IS NULL
+       RETURNING *`,
+      [Number(req.params.id)]
+    );
+
+    if (result.rows.length > 0) {
+      return res.status(200).json({
+        message: "Book returned successfully",
+        loan: result.rows[0],
+      });
+    }
+
+    const existingLoan = await pool.query(
+      "SELECT id FROM loans WHERE id = $1",
+      [Number(req.params.id)]
+    );
+
+    if (existingLoan.rows.length === 0) {
+      return res.status(404).json({
+        message: "Loan not found",
+      });
+    }
+
+    res.status(409).json({
+      message: "Book has already been returned",
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: "Failed to return book",
+    });
+  }
+});
+
+// Get a member's loan history
+app.get("/members/:id/loans", async (req, res) => {
+  if (!isValidId(req.params.id)) {
+    return res.status(400).json({
+      message: "Invalid member ID",
+    });
+  }
+
+  const id = Number(req.params.id);
+
+  try {
+    const member = await pool.query(
+      "SELECT id FROM members WHERE id = $1",
+      [id]
+    );
+
+    if (member.rows.length === 0) {
+      return res.status(404).json({
+        message: "Member not found",
+      });
+    }
+
+    const result = await pool.query(
+      `SELECT
+         loans.id,
+         loans.book_id,
+         books.title AS book_title,
+         loans.member_id,
+         members.name AS member_name,
+         loans.borrowed_at,
+         loans.returned_at
+       FROM loans
+       JOIN books ON loans.book_id = books.id
+       JOIN members ON loans.member_id = members.id
+       WHERE members.id = $1
+       ORDER BY loans.borrowed_at DESC, loans.id DESC`,
+      [id]
+    );
+
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: "Failed to fetch member loans",
     });
   }
 });
