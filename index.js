@@ -17,12 +17,42 @@ app.get("/", (req, res) => {
   });
 });
 
-// Get all books
+// Get all books with filtering and sorting
 app.get("/books", async (req, res) => {
+  const { genre, sort } = req.query;
+  const allowedSorts = ["title", "published_year", "genre"];
+
+  if (genre !== undefined && typeof genre !== "string") {
+    return res.status(400).json({
+      message: "Invalid genre",
+    });
+  }
+
+  if (
+    sort !== undefined &&
+    (typeof sort !== "string" || !allowedSorts.includes(sort))
+  ) {
+    return res.status(400).json({
+      message: "Invalid sort field",
+    });
+  }
+
   try {
-    const result = await pool.query(
-      "SELECT * FROM books ORDER BY id"
-    );
+    let query = "SELECT * FROM books";
+    const values = [];
+
+    if (genre !== undefined) {
+      query += " WHERE genre = $1";
+      values.push(genre);
+    }
+
+    if (sort) {
+      query += ` ORDER BY ${sort}`;
+    } else {
+      query += " ORDER BY id";
+    }
+
+    const result = await pool.query(query, values);
 
     res.status(200).json(result.rows);
   } catch (error) {
