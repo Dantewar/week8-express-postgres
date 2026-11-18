@@ -5,8 +5,8 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "node --watch index.js"
+    "start": "node --import ./instrument.js index.js",
+    "dev": "node --watch --import ./instrument.js index.js"
   },
   "keywords": [],
   "author": "Dante",
