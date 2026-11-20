@@ -90,3 +90,28 @@ I practiced using Sequelize methods for CRUD operations, creating relationships 
 I also compared Sequelize-generated SQL with my own JOIN queries.
 
 This helped me understand how an ORM works and why SQL knowledge is still important when developing backend applications.
+
+
+## Week 11 – Sentry
+
+### Exercise 2 – Your First Error Report
+
+**Question: You didn't add any extra information to this error yourself. List everything Sentry recorded anyway.**
+
+Sentry automatically collected information when I triggered an error in my Express application.
+
+The dashboard showed:
+
+- Issue ID: NODE-EXPRESS-1
+- Error message: My first Sentry error!
+- Endpoint: GET /debug-sentry
+- Environment: development
+- Node.js version: v24.21.0
+- Operating system: Windows 10.0.28000
+- Status: Unhandled
+- Events: 1
+- Request source: Localhost (127.0.0.1)
+
+The dashboard also provides information such as stack traces, tags, breadcrumbs and additional context.
+
+This information helps developers investigate errors and identify problems in an application.

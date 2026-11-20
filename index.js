@@ -1,3 +1,4 @@
+﻿import * as Sentry from "@sentry/node";
 
 import express from "express";
 import dotenv from "dotenv";
@@ -760,6 +761,16 @@ app.get("/loans/active", async (req, res) => {
   }
 });
 
+// Exercise 2: First Sentry error report
+if (process.env.NODE_ENV !== "production") {
+  app.get("/debug-sentry", (req, res) => {
+    throw new Error("My first Sentry error!");
+  });
+}
+
+// Sentry error handler must be registered after the routes
+Sentry.setupExpressErrorHandler(app);
+
 // Start server after successful database authentication
 async function startServer() {
   const connected = await testDatabaseConnection();
@@ -776,3 +787,4 @@ async function startServer() {
 }
 
 startServer();
+
